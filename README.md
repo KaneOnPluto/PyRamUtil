@@ -21,13 +21,6 @@ The project is designed as a lightweight monitoring engine with both CLI and GUI
 - Dark-mode GUI with an engine-first architecture
 - No kernel drivers, background services, or admin privileges required
 
-
----
-
-## Screenshots
-
-(Coming soon)
-
 ---
 
 ## Requirements
