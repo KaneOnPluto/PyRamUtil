@@ -3,27 +3,19 @@ import psutil
 from collections import deque
 
 
-# ------------------------
-# Global settings
-# ------------------------
 process_history = {}
 growth_tracker = {}
+system_history = deque(maxlen=60)
+role_history = deque(maxlen=60)
 
-
-# ------------------------
-# Constants
-# ------------------------
 MB = 1024 * 1024
-MEMORY_DELTA_THRESHOLD = 5 * MB 
-HISTORY_LENGTH = 6  # number of samples to keep
-STEADY_GROWTH_THRESHOLD = 4  # how many consecutive increases
+MEMORY_DELTA_THRESHOLD = 5 * MB
+HISTORY_LENGTH = 6
+STEADY_GROWTH_THRESHOLD = 4
 SPIKE_MB = 30 * MB
 FLAT_DELTA_MB = 5 * MB
 
 
-# ------------------------
-# Helpers
-# ------------------------
 def fmt_mb(value):
     if value is None:
         return "N/A"
@@ -34,9 +26,6 @@ def get_rss_deltas(samples):
     return [samples[i][1] - samples[i - 1][1] for i in range(1, len(samples))]
 
 
-# ------------------------
-# Data collection
-# ------------------------
 def get_system_memory():
     vm = psutil.virtual_memory()
     sm = psutil.swap_memory()
@@ -51,56 +40,49 @@ def get_system_memory():
     }
 
 
+def classify_process(name):
+    name = name.lower()
+
+    if name in ("system idle process", "system"):
+        return "system_service"
+    if name in ("svchost.exe", "services.exe", "wininit.exe"):
+        return "system_service"
+    if name in ("explorer.exe", "taskhostw.exe"):
+        return "system_ui"
+    return "user_app"
+
+
 def get_process_snapshot():
     processes = []
 
-    for proc in psutil.process_iter(["pid", "name", "memory_info", "create_time"]):
+    for proc in psutil.process_iter(["pid", "name"]):
         try:
-            mem = proc.info["memory_info"]
+            name = proc.info.get("name") or "unknown"
+            mem = proc.memory_info()
+            rss = mem.rss
+
+            try:
+                full = proc.memory_full_info()
+                private = full.private
+            except (psutil.AccessDenied, AttributeError):
+                private = 0
+
             processes.append(
                 {
-                    "pid": proc.info["pid"],
-                    "name": proc.info["name"],
-                    "rss": mem.rss,
-                    "private": getattr(mem, "private", None),
-                    "shared": getattr(mem, "shared", None),
-                    "start_time": proc.info["create_time"],
+                    "pid": proc.pid,
+                    "name": name,
+                    "rss": rss,
+                    "private": private,
+                    "role": classify_process(name),
                 }
             )
+
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
     return processes
 
 
-def detect_startup_spike(pid):
-    data = process_history[pid]
-    samples = data["rss"]
-
-    if len(samples) < 3:
-        return False
-
-    deltas = get_rss_deltas(samples)
-
-    big_spike = deltas[0] > SPIKE_MB
-    mostly_flat = all(abs(d) < FLAT_DELTA_MB for d in deltas[1:])
-
-    return big_spike and mostly_flat
-
-
-def detect_temporary_burst(pid):
-    samples = process_history[pid]["rss"]
-
-    if len(samples) < 3:
-        return False
-
-    values = [rss for _, rss in samples]
-    return max(values) - values[-1] > FLAT_DELTA_MB
-
-
-# ------------------------
-# Snapshot + diff logic
-# ------------------------
 def take_snapshot():
     return {
         "timestamp": time.time(),
@@ -125,7 +107,6 @@ def diff_snapshots(prev, curr):
     for pid in prev_pids - curr_pids:
         changes["terminated_processes"].append(prev["processes"][pid])
 
-    # Memory deltas
     for pid in prev_pids & curr_pids:
         prev_p = prev["processes"][pid]
         curr_p = curr["processes"][pid]
@@ -156,24 +137,38 @@ def update_process_history(snapshot):
 
         process_history[pid]["rss"].append((timestamp, proc["rss"]))
 
-    # Cleanup dead processes
-    alive_pids = set(snapshot["processes"].keys())
-    for pid in list(process_history.keys()):
-        if pid not in alive_pids:
+    alive = set(snapshot["processes"])
+    for pid in list(process_history):
+        if pid not in alive:
             del process_history[pid]
+
+
+def detect_startup_spike(pid):
+    samples = process_history[pid]["rss"]
+    if len(samples) < 3:
+        return False
+
+    deltas = get_rss_deltas(samples)
+    return deltas[0] > SPIKE_MB and all(abs(d) < FLAT_DELTA_MB for d in deltas[1:])
+
+
+def detect_temporary_burst(pid):
+    samples = process_history[pid]["rss"]
+    if len(samples) < 3:
+        return False
+
+    values = [rss for _, rss in samples]
+    return max(values) - values[-1] > FLAT_DELTA_MB
 
 
 def detect_steady_growth(pid):
     samples = process_history[pid]["rss"]
-
     if len(samples) < STEADY_GROWTH_THRESHOLD + 1:
         return False
 
-    increases = 0
-    for i in range(1, len(samples)):
-        if samples[i][1] > samples[i - 1][1]:
-            increases += 1
-
+    increases = sum(
+        samples[i][1] > samples[i - 1][1] for i in range(1, len(samples))
+    )
     return increases >= STEADY_GROWTH_THRESHOLD
 
 
@@ -182,86 +177,63 @@ def explain_system_pressure(system):
     available_ratio = system["available"] / system["total"]
 
     if used_ratio > 0.85 and available_ratio > 0.20:
-        return "High RAM usage but sufficient available memory (likely cache)"
-    elif available_ratio < 0.10:
+        return "High RAM usage but sufficient available memory"
+    if available_ratio < 0.10:
         return "Low available memory — system under pressure"
-    else:
-        return "Memory usage within normal range"
+    return "Memory usage within normal range"
 
 
-def print_top_offenders():
-    if not growth_tracker:
-        return
+def system_condition(system):
+    used_ratio = system["used"] / system["total"]
+    available_ratio = system["available"] / system["total"]
 
-    print("Top memory growth offenders:")
-    sorted_growth = sorted(growth_tracker.items(), key=lambda x: x[1], reverse=True)
+    if available_ratio < 0.08:
+        return "critical"
+    if used_ratio > 0.85:
+        return "pressured"
+    return "healthy"
 
-    for pid, delta in sorted_growth[:3]:
-        name = process_history.get(pid, {}).get("name", "unknown")
-        print(f"  {name:<15} +{delta / MB:.1f} MB")
-        
+
 def engine_tick(prev_snapshot):
     curr = take_snapshot()
     update_process_history(curr)
     diff = diff_snapshots(prev_snapshot, curr)
 
-    state = {
+    role_breakdown = aggregate_memory_by_role(curr["processes"])
+    condition = system_condition(curr["system"])
+    condition_text = explain_system_pressure(curr["system"])
+
+    system_history.append(curr["system"])
+    role_history.append(role_breakdown)
+
+    return curr, {
         "timestamp": curr["timestamp"],
         "system": curr["system"],
+        "condition": condition,
+        "condition_text": condition_text,
+        "roles": role_breakdown,
         "diff": diff,
-        "history": process_history.copy(),
+        "processes": curr["processes"],
     }
 
-    return curr, state
+
+def aggregate_memory_by_role(processes):
+    totals = {
+        "user_app": 0,
+        "system_service": 0,
+        "system_ui": 0,
+        "other": 0,
+    }
+
+    for p in processes.values():
+        role = p.get("role", "other")
+        private = p.get("private", 0)
+        totals[role] += private
+
+    return totals
 
 
-
-# ------------------------
-# output
-# ------------------------
-def print_system_memory(mem):
-    for k, v in mem.items():
-        print(f"{k:15}: {fmt_mb(v)}")
-
-
-def print_diff(diff):
-    for p in diff["new_processes"]:
-        print(f"[+] Started  {p['name']} ({p['pid']})")
-
-    for p in diff["terminated_processes"]:
-        print(f"[-] Exited   {p['name']} ({p['pid']})")
-
-    for m in diff["memory_changes"]:
-        pid = m["pid"]
-        growth_tracker[pid] = growth_tracker.get(pid, 0) + m["delta"]
-        sign = "+" if m["delta"] > 0 else "-"
-        print(
-            f"[Δ] {m['name']:<20} "
-            f"{sign}{abs(m['delta']) / MB:.1f} MB "
-            f"(RSS {m['rss'] / MB:.1f} MB)"
-        )
-
-
-def print_behavior_classification():
-    for pid, data in process_history.items():
-        rss_mb = data["rss"][-1][1] / MB
-
-        if detect_startup_spike(pid):
-            print(f"[INFO] {data['name']} startup allocation (RSS {rss_mb:.1f} MB)")
-        elif detect_temporary_burst(pid):
-            print(f"[INFO] {data['name']} temporary memory burst (RSS {rss_mb:.1f} MB)")
-        elif detect_steady_growth(pid):
-            print(f"[WARN] {data['name']} steady memory growth (RSS {rss_mb:.1f} MB)")
-
-
-# ------------------------
-# Entry point
-# ------------------------
 def main():
-    print("Initial system memory:")
-    print_system_memory(get_system_memory())
-    print("-" * 50)
-
     prev = take_snapshot()
     update_process_history(prev)
     time.sleep(5)
@@ -270,11 +242,7 @@ def main():
         curr = take_snapshot()
         update_process_history(curr)
         diff = diff_snapshots(prev, curr)
-        pressure = explain_system_pressure(curr["system"])
-        print(f"[SYS] {pressure}")
-        print_diff(diff)
-        print_behavior_classification()
-        print("-" * 50)
+        print(explain_system_pressure(curr["system"]))
         prev = curr
         time.sleep(5)
 
