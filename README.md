@@ -41,3 +41,44 @@ Clone the repository and install dependencies:
 
 ```bash
 pip install -r requirements.txt
+```
+---
+
+## Execution
+
+```bash
+python main.py
+```
+- This mode is pure CLI
+- 
+- The CLI output shows:
+
+1) Process start/exit events
+
+2) Significant memory changes
+
+3) Behavior classifications and warnings
+
+4) System memory pressure explanations
+
+- GUI mode -
+
+```bash
+python gui.py
+```
+- The GUI mode provides a live view of system memory and process-level changes using the same underlying engine.
+
+---
+
+PolyForm Noncommercial License 1.0.0
+
+This project is source-available.
+You may use, modify, and redistribute it for personal and non-commercial purposes only.
+Commercial use is not permitted.
+
+
+
+
+
+
+
