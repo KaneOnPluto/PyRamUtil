@@ -53,13 +53,13 @@ python main.py
   
 - The CLI output shows:
 
-1) Process start/exit events
+   1) Process start/exit events
 
-2) Significant memory changes
+   2) Significant memory changes
 
-3) Behavior classifications and warnings
+   3) Behavior classifications and warnings
 
-4) System memory pressure explanations
+   4) System memory pressure explanations
 
 - GUI mode -
 
