@@ -6,7 +6,7 @@ Unlike Task Manager, PyRamUtil tracks RAM usage over time, analyzes per-process 
 
 The project is designed as a lightweight monitoring engine with both CLI and GUI frontends.
 
--- This project is just a prototype, and is being worked on! --
+-- This project is just a prototype, you can add your own features as required, it is finished for the most part, I will revisit it if there are some bugs. --
 
 ---
 
