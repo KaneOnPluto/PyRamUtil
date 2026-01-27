@@ -50,7 +50,7 @@ pip install -r requirements.txt
 python main.py
 ```
 - This mode is pure CLI
-- 
+  
 - The CLI output shows:
 
 1) Process start/exit events
