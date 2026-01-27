@@ -12,15 +12,15 @@ The project is designed as a lightweight monitoring engine with both CLI and GUI
 
 ## Features
 
-- Time-based RAM monitoring (not just snapshots)
-- Per-process memory tracking
-- Detection of memory behavior patterns:
-  - Startup allocations
-  - Temporary memory bursts
-  - Steady memory growth
-- System-level memory pressure explanation
-- CLI-first design with optional GUI
-- No kernel drivers or admin privileges required
+- Live RAM monitoring with historical context (not just snapshots)
+- Real-time per-process memory tracking (apps and system services)
+- Clear attribution using private memory (no double-counting)
+- System memory condition detection (healthy / pressured / critical)
+- Live RAM usage graph (used vs total)
+- Process view with sortable RAM usage (RSS and private memory)
+- Dark-mode GUI with an engine-first architecture
+- No kernel drivers, background services, or admin privileges required
+
 
 ---
 
