@@ -23,6 +23,12 @@ The project is designed as a lightweight monitoring engine with both CLI and GUI
 
 ---
 
+## Bug
+
+- Double click RSS in processes tab 2-3 times for everything to appear.
+
+---
+
 ## Requirements
 
 - Windows 10 or later
