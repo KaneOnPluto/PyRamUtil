@@ -1,4 +1,4 @@
-# PyRamUtil
+# PyRamUtil (Check out the release for final executable file!)
 
 PyRamUtil is a Windows memory monitoring and analysis tool focused on behavior, not just usage.
 
